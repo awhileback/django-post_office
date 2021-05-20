@@ -356,41 +356,45 @@ def send_queued_mail_until_done(lockfile=default_lockfile, processes=1, log_leve
         with FileLock(lockfile):
             logger.info('Acquired lock for sending queued emails at %s.lock', lockfile)
             while True:
-                while 1:
-                    try:
-                        group_emails = Email.objects.filter(status=STATUS.queued, group_id__isnull=False) \
-                            .select_related('template') \
-                            .filter(Q(scheduled_time__lte=now()) | Q(scheduled_time=None))
+                try:
+        with FileLock(lockfile):
+            logger.info('Acquired lock for sending queued emails at %s.lock', lockfile)
+            while True:
+                try:
+                    group_emails = Email.objects.filter(status=STATUS.queued, group_id__isnull=False) \
+                        .select_related('template') \
+                        .filter(Q(scheduled_time__lte=now()) | Q(scheduled_time=None))
 
-                        if group_emails:
-                            kwargs_list = []
-                            for email in group_emails:
-                                group_emails_users = User.objects.filter(Q(groups__id=email.group_id, is_subscribed=True))
+                    if group_emails:
+                        kwargs_list = []
+                        for email in group_emails:
+                            group_emails_users = User.objects.filter(Q(groups__id=email.group_id, is_subscribed=True))
 
-                                for user in group_emails_users:
-                                    token = unsubscribe_token.make_token(user)
-                                    uid = urlsafe_base64_encode(force_bytes(user.email))
-                                    unsub_link = settings.BASE_URL + '/unsubscribe/' + uid + '/' + token + '/'
-                                    user_context = user.__dict__
-                                    unsub_context = { 'unsubscribe': unsub_link }
-                                    context = {**user_context, **unsub_context}
-                                    user.id = {
-                                        'sender': settings.DEFAULT_FROM_EMAIL,
-                                        'recipients': user.email,
-                                        'template': email.template,
-                                        'render_on_delivery': True,
-                                        'context': context,
-                                    }
+                            for user in group_emails_users:
+                                token = unsubscribe_token.make_token(user)
+                                uid = urlsafe_base64_encode(force_bytes(user.email))
+                                unsub_link = settings.BASE_URL + '/unsubscribe/' + uid + '/' + token + '/'
+                                user_context = user.__dict__
+                                unsub_context = { 'unsubscribe': unsub_link }
+                                context = {**user_context, **unsub_context}
+                                user.id = {
+                                    'sender': settings.DEFAULT_FROM_EMAIL,
+                                    'recipients': user.email,
+                                    'template': email.template,
+                                    'render_on_delivery': True,
+                                    'context': context,
+                                }
 
-                                    kwargs_list.append(user.id)
+                                kwargs_list.append(user.id)
 
-                            send_many(kwargs_list)
+                        send_many(kwargs_list)
 
-                            send_queued(options['processes'],
-                                        options.get('log_level'))
-                        else:
-                            send_queued(options['processes'],
-                                        options.get('log_level'))
+                        send_queued(options['processes'],
+                                    options.get('log_level'))
+                    else:
+                        send_queued(options['processes'],
+                                    options.get('log_level'))
+
                 except Exception as e:
                     logger.error(e, exc_info=sys.exc_info(), extra={'status_code': 500})
                     raise
