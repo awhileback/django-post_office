@@ -35,13 +35,17 @@ class Email(models.Model):
                       (STATUS.queued, _("queued")), (STATUS.requeued, _("requeued"))]
 
     from_email = models.CharField(_("Email From"), max_length=254,
-                                  validators=[validate_email_with_name])
-    to = CommaSeparatedEmailField(_("Email To"))
-    cc = CommaSeparatedEmailField(_("Cc"))
-    bcc = CommaSeparatedEmailField(_("Bcc"))
-    subject = models.CharField(_("Subject"), max_length=989, blank=True)
-    message = models.TextField(_("Message"), blank=True)
-    html_message = models.TextField(_("HTML Message"), blank=True)
+                                  validators=[validate_email_with_name], help_text=_("Must have permission to send through the default server!"))
+    group = models.ForeignKey('auth.group', blank=True, null=True, 
+                                help_text=_("Send email to all members of a group."),
+                                verbose_name=_('Send to group'), 
+                                on_delete=models.SET_NULL)
+    to = CommaSeparatedEmailField(_("Email To"), help_text=_("Optional (if no group of recipients selected), separate addresses with a comma."))
+    cc = CommaSeparatedEmailField(_("Email Cc"), help_text=_("Optional, separate multiple addresses with a comma."))
+    bcc = CommaSeparatedEmailField(_("Email Bcc"), help_text=_("Optional, separate multiple addresses with a comma."))
+    subject = models.CharField(_("Subject"), max_length=999, blank=True, help_text=_('Leave this blank if sending content by a template!'))
+    message = models.TextField(_("Text Content"), blank=True, help_text=_('Leave this blank if sending content by a template!'))
+    html_message = models.TextField(_("HTML Content"), blank=True, help_text=_('Leave this blank if sending content by a template!'))
     """
     Emails with 'queued' status will get processed by ``send_queued`` command.
     Status field will then be set to ``failed`` or ``sent`` depending on
@@ -252,11 +256,17 @@ class EmailTemplate(models.Model):
     created = models.DateTimeField(auto_now_add=True)
     last_updated = models.DateTimeField(auto_now=True)
     subject = models.CharField(max_length=255, blank=True,
-        verbose_name=_("Subject"), validators=[validate_template_syntax])
+        verbose_name=_("Subject"), 
+        help_text=_("The email subject."), 
+        validators=[validate_template_syntax])
     content = models.TextField(blank=True,
-        verbose_name=_("Content"), validators=[validate_template_syntax])
+        verbose_name=_("Text Content"),
+        help_text=_("Plain text message for users who have HTML email disabled."), 
+        validators=[validate_template_syntax])
     html_content = models.TextField(blank=True,
-        verbose_name=_("HTML content"), validators=[validate_template_syntax])
+        verbose_name=_("HTML Content"),
+        help_text=_("Email HTML body. Context variables available for personalisation, ex: {{ first_name }} {{ last_name }} returns Joe Smith"), 
+        validators=[validate_template_syntax])
     language = models.CharField(max_length=12,
         verbose_name=_("Language"),
         help_text=_("Render template in alternative language"),
