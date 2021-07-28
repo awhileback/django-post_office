@@ -37,15 +37,15 @@ class Email(models.Model):
     from_email = models.CharField(_("Email From"), max_length=254,
                                   validators=[validate_email_with_name], help_text=_("Must have permission to send through the default server!"))
     group = models.ForeignKey('auth.group', blank=True, null=True, 
-                                help_text=_("Send email to all members of a group."),
+                                help_text=_("Optional, send email to all members of a group."),
                                 verbose_name=_('Send to group'), 
                                 on_delete=models.SET_NULL)
-    to = CommaSeparatedEmailField(_("Email To"), help_text=_("Optional (if no group of recipients selected), separate addresses with a comma."))
+    to = CommaSeparatedEmailField(_("Email To"), help_text=_("Optional if no group selected, separate addresses with a comma."))
     cc = CommaSeparatedEmailField(_("Email Cc"), help_text=_("Optional, separate multiple addresses with a comma."))
     bcc = CommaSeparatedEmailField(_("Email Bcc"), help_text=_("Optional, separate multiple addresses with a comma."))
-    subject = models.CharField(_("Subject"), max_length=999, blank=True, help_text=_('Leave this blank if sending content by a template!'))
-    message = models.TextField(_("Text Content"), blank=True, help_text=_('Leave this blank if sending content by a template!'))
-    html_message = models.TextField(_("HTML Content"), blank=True, help_text=_('Leave this blank if sending content by a template!'))
+    subject = models.CharField(_("Subject"), max_length=999, blank=True, help_text=_("Optional, no context variables, group sending, or unsubscribe link, leave blank if sending content by a template!"))
+    message = models.TextField(_("Text Content"), blank=True, help_text=_("Optional, no context variables, group sending, or unsubscribe link, leave blank if sending content by a template!"))
+    html_message = models.TextField(_("HTML Content"), blank=True, help_text=_("Optional, no context variables, group sending, or unsubscribe link, leave blank if sending content by a template!"))
     """
     Emails with 'queued' status will get processed by ``send_queued`` command.
     Status field will then be set to ``failed`` or ``sent`` depending on
@@ -55,7 +55,7 @@ class Email(models.Model):
         _("Status"),
         choices=STATUS_CHOICES, db_index=True,
         blank=True, null=True)
-    priority = models.PositiveSmallIntegerField(_("Priority"),
+    priority = models.PositiveSmallIntegerField(_('Priority'),
                                                 choices=PRIORITY_CHOICES,
                                                 blank=True, null=True)
     created = models.DateTimeField(auto_now_add=True, db_index=True)
@@ -63,14 +63,15 @@ class Email(models.Model):
     scheduled_time = models.DateTimeField(_("Scheduled Time"),
                                           blank=True, null=True, db_index=True,
                                           help_text=_("The scheduled sending time"))
-    expires_at = models.DateTimeField(_("Expires"),
+    expires_at = models.DateTimeField(_('Expires'),
                                       blank=True, null=True,
                                       help_text=_("Email won't be sent after this timestamp"))
-    message_id = models.CharField("Message-ID", null=True, max_length=255, editable=False)
+    message_id = models.CharField('Message-ID', null=True, max_length=255, editable=False)
     number_of_retries = models.PositiveIntegerField(null=True, blank=True)
     headers = JSONField(_('Headers'), blank=True, null=True)
     template = models.ForeignKey('post_office.EmailTemplate', blank=True,
-                                 null=True, verbose_name=_("Email template"),
+                                 null=True, verbose_name=_('Email template'),
+                                 help_text=_("Optional, use a pre-made template rather than typing the message content in this form."),
                                  on_delete=models.CASCADE)
     context = context_field_class(_('Context'), blank=True, null=True)
     backend_alias = models.CharField(_("Backend alias"), blank=True, default='',
@@ -86,7 +87,10 @@ class Email(models.Model):
         self._cached_email_message = None
 
     def __str__(self):
-        return '%s' % self.to
+        if self.group:
+            return '%s' % self.group
+        else:
+            return '%s' % self.to
 
     def email_message(self):
         """

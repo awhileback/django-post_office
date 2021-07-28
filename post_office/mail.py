@@ -11,6 +11,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import connection as db_connection
 from django.db.models import Q
+from django.forms.models import model_to_dict
 from django.template import Context, Template
 from django.utils import timezone
 from email.utils import make_msgid
@@ -171,17 +172,31 @@ def send(recipients=None, sender=None, template=None, context=None, subject='',
 
     return email
 
-
 def send_many(kwargs_list):
     """
     Similar to mail.send(), but this function accepts a list of kwargs.
     Internally, it uses Django's bulk_create command for efficiency reasons.
     Currently send_many() can't be used to send emails with priority = 'now'.
+
+    Local changes: don't send right away, because the group email functionality
+    is elsewhere. Just queue the emails, thanks.
     """
-    emails = [send(commit=False, **kwargs) for kwargs in kwargs_list]
-    if emails:
-        Email.objects.bulk_create(emails)
-        email_queued.send(sender=Email, emails=emails)
+    emails = []
+    for kwargs in kwargs_list:
+        emails.append(send(commit=False, **kwargs))
+    Email.objects.bulk_create(emails)
+
+
+#def send_many(kwargs_list):
+#    """
+#    Similar to mail.send(), but this function accepts a list of kwargs.
+#    Internally, it uses Django's bulk_create command for efficiency reasons.
+#    Currently send_many() can't be used to send emails with priority = 'now'.
+#    """
+#    emails = [send(commit=False, **kwargs) for kwargs in kwargs_list]
+#    if emails:
+#        Email.objects.bulk_create(emails)
+#        email_queued.send(sender=Email, emails=emails)
 
 
 def get_queued():
@@ -357,10 +372,6 @@ def send_queued_mail_until_done(lockfile=default_lockfile, processes=1, log_leve
             logger.info('Acquired lock for sending queued emails at %s.lock', lockfile)
             while True:
                 try:
-        with FileLock(lockfile):
-            logger.info('Acquired lock for sending queued emails at %s.lock', lockfile)
-            while True:
-                try:
                     group_emails = Email.objects.filter(status=STATUS.queued, group_id__isnull=False) \
                         .select_related('template') \
                         .filter(Q(scheduled_time__lte=now()) | Q(scheduled_time=None))
@@ -368,13 +379,13 @@ def send_queued_mail_until_done(lockfile=default_lockfile, processes=1, log_leve
                     if group_emails:
                         kwargs_list = []
                         for email in group_emails:
-                            group_emails_users = User.objects.filter(Q(groups__id=email.group_id, is_subscribed=True))
+                            group_emails_users = User.objects.filter(Q(groups__id=email.group_id, is_mailsubscribed=True))
 
                             for user in group_emails_users:
                                 token = unsubscribe_token.make_token(user)
                                 uid = urlsafe_base64_encode(force_bytes(user.email))
                                 unsub_link = settings.BASE_URL + '/unsubscribe/' + uid + '/' + token + '/'
-                                user_context = user.__dict__
+                                user_context = model_to_dict(user, exclude=['groups'])
                                 unsub_context = { 'unsubscribe': unsub_link }
                                 context = {**user_context, **unsub_context}
                                 user.id = {
@@ -389,11 +400,9 @@ def send_queued_mail_until_done(lockfile=default_lockfile, processes=1, log_leve
 
                         send_many(kwargs_list)
 
-                        send_queued(options['processes'],
-                                    options.get('log_level'))
+                        send_queued(processes, log_level)
                     else:
-                        send_queued(options['processes'],
-                                    options.get('log_level'))
+                        send_queued(processes, log_level)
 
                 except Exception as e:
                     logger.error(e, exc_info=sys.exc_info(), extra={'status_code': 500})
@@ -404,5 +413,6 @@ def send_queued_mail_until_done(lockfile=default_lockfile, processes=1, log_leve
 
                 if not get_queued().exists():
                     break
+
     except FileLocked:
         logger.info('Failed to acquire lock, terminating now.')
